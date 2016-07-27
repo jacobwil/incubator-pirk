@@ -22,15 +22,16 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.lang.IllegalArgumentException;
 
 import org.apache.http.util.ByteArrayBuffer;
 import org.apache.pirk.utils.SystemConfiguration;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Class for partitioning objects with primitive Java types
- * 
  */
 public class PrimitiveTypePartitioner implements DataPartitioner
 {
@@ -49,11 +50,11 @@ public class PrimitiveTypePartitioner implements DataPartitioner
 
   // Default constructor
   public PrimitiveTypePartitioner()
-  {}
+  {
+  }
 
   /**
    * Splits the given BigInteger into partitions given by the partitionSize
-   *
    */
   public static ArrayList<BigInteger> partitionBits(BigInteger value, int partitionSize, BigInteger mask) throws Exception
   {
@@ -96,7 +97,6 @@ public class PrimitiveTypePartitioner implements DataPartitioner
 
   /**
    * Method to form a BigInteger bit mask for the given partitionSize
-   * 
    */
   public static BigInteger formBitMask(int partitionSize)
   {
@@ -105,92 +105,27 @@ public class PrimitiveTypePartitioner implements DataPartitioner
 
   /**
    * Method to get the number of 8-bit partitions given the element type
-   * 
    */
-  @Override
-  public int getNumPartitions(String type) throws Exception
+  @Override public int getNumPartitions(String typeAsString) throws Exception
   {
-    int partitionSize = 8;
-
-    int numParts;
-    switch (type)
-    {
-      case BYTE:
-        numParts = Byte.SIZE / partitionSize;
-        break;
-      case SHORT:
-        numParts = Short.SIZE / partitionSize;
-        break;
-      case INT:
-        numParts = Integer.SIZE / partitionSize;
-        break;
-      case LONG:
-        numParts = Long.SIZE / partitionSize;
-        break;
-      case FLOAT:
-        numParts = Float.SIZE / partitionSize;
-        break;
-      case DOUBLE:
-        numParts = Double.SIZE / partitionSize;
-        break;
-      case CHAR:
-        numParts = Character.SIZE / partitionSize;
-        break;
-      case STRING:
-        numParts = Integer.parseInt(SystemConfiguration.getProperty("pir.stringBits")) / partitionSize;
-        break;
-      default:
-        throw new Exception("type = " + type + " not recognized!");
-    }
-    return numParts;
+    return safelyConvertTypeToEnum(typeAsString).numPartitions();
   }
 
   /**
    * Get the bit size of the allowed primitive java types
    */
-  @Override
-  public int getBits(String type) throws Exception
+  @Override public int getBits(String typeAsString) throws Exception
   {
-    int bits;
-    switch (type)
-    {
-      case BYTE:
-        bits = Byte.SIZE;
-        break;
-      case SHORT:
-        bits = Short.SIZE;
-        break;
-      case INT:
-        bits = Integer.SIZE;
-        break;
-      case LONG:
-        bits = Long.SIZE;
-        break;
-      case FLOAT:
-        bits = Float.SIZE;
-        break;
-      case DOUBLE:
-        bits = Double.SIZE;
-        break;
-      case CHAR:
-        bits = Character.SIZE;
-        break;
-      case STRING:
-        bits = Integer.parseInt(SystemConfiguration.getProperty("pir.stringBits"));
-        break;
-      default:
-        throw new Exception("type = " + type + " not recognized!");
-    }
-    return bits;
+    return safelyConvertTypeToEnum(typeAsString).size();
   }
 
   /**
    * Reconstructs the object from the partitions
    */
-  @Override
-  public Object fromPartitions(ArrayList<BigInteger> parts, int partsIndex, String type) throws Exception
+  @Override public Object fromPartitions(ArrayList<BigInteger> parts, int partsIndex, String typeAsString) throws Exception
   {
     Object element;
+    PrimitiveTypeEnum type = safelyConvertTypeToEnum(typeAsString);
 
     switch (type)
     {
@@ -200,49 +135,50 @@ public class PrimitiveTypePartitioner implements DataPartitioner
         break;
       case SHORT:
       {
-        byte[] bytes = appendBytes(parts, partsIndex, getNumPartitions(type));
+        byte[] bytes = appendBytes(parts, partsIndex, type.numPartitions());
         element = ByteBuffer.wrap(bytes).getShort();
         break;
       }
       case INT:
       {
-        byte[] bytes = appendBytes(parts, partsIndex, getNumPartitions(type));
+        byte[] bytes = appendBytes(parts, partsIndex, type.numPartitions());
         element = ByteBuffer.wrap(bytes).getInt();
         break;
       }
       case LONG:
       {
-        byte[] bytes = appendBytes(parts, partsIndex, getNumPartitions(type));
+        byte[] bytes = appendBytes(parts, partsIndex, type.numPartitions());
         element = ByteBuffer.wrap(bytes).getLong();
         break;
       }
       case FLOAT:
       {
-        byte[] bytes = appendBytes(parts, partsIndex, getNumPartitions(type));
+        byte[] bytes = appendBytes(parts, partsIndex, type.numPartitions());
         element = ByteBuffer.wrap(bytes).getFloat();
         break;
       }
       case DOUBLE:
       {
-        byte[] bytes = appendBytes(parts, partsIndex, getNumPartitions(type));
+        byte[] bytes = appendBytes(parts, partsIndex, type.numPartitions());
         element = ByteBuffer.wrap(bytes).getDouble();
         break;
       }
       case CHAR:
       {
-        byte[] bytes = appendBytes(parts, partsIndex, getNumPartitions(type));
+        byte[] bytes = appendBytes(parts, partsIndex, type.numPartitions());
         element = ByteBuffer.wrap(bytes).getChar();
         break;
       }
       case STRING:
       {
-        byte[] bytes = appendBytes(parts, partsIndex, getNumPartitions(type));
+        byte[] bytes = appendBytes(parts, partsIndex, type.numPartitions());
         element = new String(bytes).trim(); // this should remove 0 padding added for partitioning underflowing strings
 
         break;
       }
       default:
-        throw new Exception("type = " + type + " not recognized!");
+        throw new Exception("type = " + typeAsString + " not recognized!");
+
     }
     return element;
   }
@@ -260,15 +196,15 @@ public class PrimitiveTypePartitioner implements DataPartitioner
   }
 
   /**
-   * 
    * Partitions an object to an ArrayList of BigInteger values, currently represents an 8-bit partitioning
    */
-  @Override
-  public ArrayList<BigInteger> toPartitions(Object obj, String type) throws Exception
+  @Override public ArrayList<BigInteger> toPartitions(Object obj, String typeAsString) throws Exception
   {
     ArrayList<BigInteger> parts = new ArrayList<>();
 
-    int numParts = getNumPartitions(type);
+    PrimitiveTypeEnum type = safelyConvertTypeToEnum(typeAsString);
+
+    int numParts = type.numPartitions();
     switch (type)
     {
       case BYTE:
@@ -377,8 +313,7 @@ public class PrimitiveTypePartitioner implements DataPartitioner
   /**
    * Method to get an empty set of partitions by data type - used for padding return array values
    */
-  @Override
-  public ArrayList<BigInteger> getPaddedPartitions(String type) throws Exception
+  @Override public ArrayList<BigInteger> getPaddedPartitions(String type) throws Exception
   {
     ArrayList<BigInteger> parts = new ArrayList<>();
 
@@ -432,8 +367,7 @@ public class PrimitiveTypePartitioner implements DataPartitioner
   /**
    * Create partitions for an array of the same type of elements - used when a data value field is an array and we wish to encode these into the return value
    */
-  @Override
-  public ArrayList<BigInteger> arrayToPartitions(List<?> elementList, String type) throws Exception
+  @Override public ArrayList<BigInteger> arrayToPartitions(List<?> elementList, String type) throws Exception
   {
     ArrayList<BigInteger> parts = new ArrayList<>();
 
@@ -453,4 +387,25 @@ public class PrimitiveTypePartitioner implements DataPartitioner
     }
     return parts;
   }
+
+  /**
+   * This method consolodates the error handling for converting invalid types as strings
+   * so that the Exceptions are more descriptive.
+   */
+  private PrimitiveTypeEnum safelyConvertTypeToEnum(String typeAsString) throws Exception
+  {
+    try
+    {
+      return PrimitiveTypeEnum.valueOf(typeAsString.toUpperCase());
+    } catch (IllegalArgumentException e)
+    {
+      /*
+        From documentation of Enum.valueOf:
+        IllegalArgumentException - if the specified enum type has no constant with the 
+        specified name, or the specified class object does not represent an enum type
+      */
+      throw new Exception("type = " + typeAsString + " not recognized!");
+    }
+  }
+
 }

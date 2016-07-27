@@ -53,9 +53,4 @@ public enum PrimitiveTypeEnum implements TypeEnum
     return this.size / 8; 
   }
   
-  public String toString() 
-  {
-    return this.name();
-  }
-  
 }
