@@ -18,23 +18,6 @@
  */
 package org.apache.pirk.querier.wideskies.encrypt;
 
-import org.apache.commons.codec.binary.Hex;
-import org.apache.pirk.encryption.Paillier;
-import org.apache.pirk.querier.wideskies.Querier;
-import org.apache.pirk.query.wideskies.Query;
-import org.apache.pirk.query.wideskies.QueryInfo;
-import org.apache.pirk.query.wideskies.QueryUtils;
-import org.apache.pirk.schema.data.DataSchema;
-import org.apache.pirk.schema.data.DataSchemaRegistry;
-import org.apache.pirk.schema.query.QuerySchema;
-import org.apache.pirk.schema.query.QuerySchemaRegistry;
-import org.apache.pirk.utils.KeyedHash;
-import org.apache.pirk.utils.PIRException;
-import org.apache.pirk.utils.RandomProvider;
-import org.apache.pirk.utils.SystemConfiguration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -48,6 +31,21 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+
+import org.apache.pirk.encryption.Paillier;
+import org.apache.pirk.querier.wideskies.Querier;
+import org.apache.pirk.query.wideskies.Query;
+import org.apache.pirk.query.wideskies.QueryInfo;
+import org.apache.pirk.query.wideskies.QueryUtils;
+import org.apache.pirk.schema.data.DataSchema;
+import org.apache.pirk.schema.data.DataSchemaRegistry;
+import org.apache.pirk.schema.query.QuerySchema;
+import org.apache.pirk.schema.query.QuerySchemaRegistry;
+import org.apache.pirk.utils.KeyedHash;
+import org.apache.pirk.utils.PIRException;
+import org.apache.pirk.utils.SystemConfiguration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Class to perform PIR encryption
@@ -82,9 +80,11 @@ public class EncryptQuery
   /**
    * Encrypts the query described by the query information using Paillier encryption.
    * <p>
-   * The encryption builds a <code>Querier</code> object, calculating and setting the query vectors.
+   * The encryption builds a {@code Querier} object, calculating and setting the query vectors.
    * <p>
    * Uses the system configured number of threads to conduct the encryption, or a single thread if the configuration has not been set.
+   * <p>
+   * Note that the act of encrypting a {@code QueryInfo} may modify its hash key as returned by {@link QueryInfo#getHashKey()}.
    *
    * @return The querier containing the query, and all information required to perform decryption.
    * @throws InterruptedException If the task was interrupted during encryption.
@@ -101,7 +101,8 @@ public class EncryptQuery
    * <p>
    * The encryption builds a <code>Querier</code> object, calculating and setting the query vectors.
    * <p>
-   * If we have hash collisions over our selector set, we will append integers to the key starting with 0 until we no longer have collisions.
+   * If we have hash collisions over our selector set a new query hash key is generated until we no longer have collisions.
+   * Therefore the encryption operation may modify the hash key returned by {@link QueryInfo#getHashKey()}.
    * <p>
    * For encrypted query vector E = <E_0, ..., E_{(2^hashBitSize)-1}>:
    * <p>
@@ -149,49 +150,32 @@ public class EncryptQuery
     return new Querier(selectors, paillier, query, embedSelectorMap);
   }
 
-  /**
-   * Use this method to get a securely generated, random string of 2*numBytes length
-   *
-   * @param numBytes How many bytes of random data to return.
-   * @return Random hex string of 2*numBytes length
-   */
-  private String getRandByteString(int numBytes)
-  {
-    byte[] randomData = new byte[numBytes];
-    RandomProvider.SECURE_RANDOM.nextBytes(randomData);
-    return Hex.encodeHexString(randomData);
-  }
-
   private Map<Integer,Integer> computeSelectorQueryVecMap()
   {
-    String hashKeyBase = queryInfo.getHashKey();
-    String hashKey = hashKeyBase + getRandByteString(10);
     int numSelectors = selectors.size();
     Map<Integer,Integer> selectorQueryVecMapping = new HashMap<>(numSelectors);
 
     for (int index = 0; index < numSelectors; index++)
     {
       String selector = selectors.get(index);
-      int hash = KeyedHash.hash(hashKey, queryInfo.getHashBitSize(), selector);
+      int hash = KeyedHash.hash(queryInfo.getHashKey(), queryInfo.getHashBitSize(), selector);
 
       // All keyed hashes of the selectors must be unique
       if (selectorQueryVecMapping.put(hash, index) == null)
       {
         // The hash is unique
-        logger.debug("index = " + index + "selector = " + selector + " hash = " + hash);
+        logger.debug("index = {}, selector = {}, hash = {}", index, selector, hash);
       }
       else
       {
         // Hash collision
         selectorQueryVecMapping.clear();
-        hashKey = hashKeyBase + getRandByteString(10);
-        logger.debug("index = " + index + "selector = " + selector + " hash collision = " + hash + " new key = " + hashKey);
+        queryInfo.regenerateHashKey();
+        logger.debug("index = {}, selector = {}, hash collision = {}, new key = ", index, selector, hash, queryInfo.getHashKey());
         index = -1;
       }
     }
 
-    // Save off the final hashKey that we ended up using
-    queryInfo.setHashKey(hashKey);
     return selectorQueryVecMapping;
   }
 
